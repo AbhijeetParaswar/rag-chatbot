@@ -1,0 +1,45 @@
+# --- Web framework ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9        # PDF upload
+sse-starlette>=2.1             # Server-Sent Events streaming
+slowapi>=0.1.9                 # rate limiting
+httpx>=0.27
+
+# --- Config & validation ---
+pydantic>=2.8
+pydantic-settings>=2.4
+python-dotenv>=1.0
+
+# --- Database ---
+sqlalchemy[asyncio]>=2.0
+aiosqlite>=0.20
+greenlet>=3.0
+alembic>=1.13                  # optional migrations
+
+# --- Vector store & embeddings ---
+chromadb>=0.5
+sentence-transformers>=3.0     # bge-small embeddings + bge-reranker
+torch>=2.3                     # CPU build is fine
+
+# --- PDF processing & chunking ---
+pymupdf>=1.24
+langchain-text-splitters>=0.2  # recursive splitter only (no full LangChain)
+tiktoken>=0.7                  # token counting
+
+# --- LLM providers (install what you use) ---
+google-genai>=0.3              # Gemini (default)
+openai>=1.40                   # optional
+anthropic>=0.34                # optional
+
+# --- Utilities ---
+tenacity>=8.5                  # retry on API failures
+structlog>=24.1                # structured logging
+numpy>=1.26
+
+# --- Dev & testing ---
+pytest>=8.0
+pytest-asyncio>=0.23
+pytest-cov>=5.0
+ruff>=0.5
+black>=24.0
