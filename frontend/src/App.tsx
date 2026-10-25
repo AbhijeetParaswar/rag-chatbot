@@ -22,6 +22,7 @@ export const App: React.FC = () => {
     top_k: 8,
     use_reranking: false,
     user_id: 'default',
+    answer_mode: 'smart_fallback',
   });
 
   const {
@@ -36,6 +37,13 @@ export const App: React.FC = () => {
     sendMessage,
     stopStreaming,
   } = useChat();
+
+  const handleConfirmFallback = (approved: boolean) => {
+    // Find the last user query to answer with general AI knowledge or cancel
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+    if (!lastUserMsg) return;
+    sendMessage(lastUserMsg.content, settings, undefined, approved);
+  };
 
   // Dark mode effect
   useEffect(() => {
@@ -72,9 +80,10 @@ export const App: React.FC = () => {
       <ChatArea
         messages={messages}
         isStreaming={isStreaming}
-        onSendMessage={(text) => sendMessage(text, settings)}
+        onSendMessage={(text, docFilter) => sendMessage(text, settings, docFilter)}
         onStopStreaming={stopStreaming}
         onSelectCitation={(citation) => setSelectedCitation(citation)}
+        onConfirmFallback={handleConfirmFallback}
         activeThreadTitle={activeThread?.title}
       />
 

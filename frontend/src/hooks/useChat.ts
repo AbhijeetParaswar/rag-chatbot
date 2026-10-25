@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Citation, Message, Thread, ChatSettings } from '../types';
+import { AnswerMode, Citation, Message, Thread, ChatSettings } from '../types';
 import {
   createThread,
   deleteThread as apiDeleteThread,
@@ -16,6 +16,13 @@ export function useChat() {
   const [isStreaming, setIsStreaming] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Linear typing queue refs for ChatGPT-like smooth streaming
+  const incomingBufferRef = useRef<string>('');
+  const displayedTextRef = useRef<string>('');
+  const typingTimerRef = useRef<number | null>(null);
+  const donePayloadRef = useRef<any>(null);
+  const currentMsgIdRef = useRef<string>('');
+
   // Load threads on mount
   const loadThreads = async () => {
     try {
@@ -28,10 +35,19 @@ export function useChat() {
 
   useEffect(() => {
     loadThreads();
+    return () => {
+      if (typingTimerRef.current) {
+        clearTimeout(typingTimerRef.current);
+      }
+    };
   }, []);
 
   // When active thread changes, load its messages
   const selectThread = async (threadId: string) => {
+    if (typingTimerRef.current) {
+      clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
     setActiveThreadId(threadId);
     try {
       const data = await fetchThread(threadId);
@@ -43,6 +59,10 @@ export function useChat() {
   };
 
   const startNewChat = () => {
+    if (typingTimerRef.current) {
+      clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
     setActiveThreadId(null);
     setMessages([]);
   };
@@ -75,13 +95,120 @@ export function useChat() {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    if (typingTimerRef.current) {
+      clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
+    // Flush remaining buffer immediately
+    if (incomingBufferRef.current.length > 0) {
+      displayedTextRef.current += incomingBufferRef.current;
+      incomingBufferRef.current = '';
+    }
+    const targetId = currentMsgIdRef.current;
     setIsStreaming(false);
     setMessages((prev) =>
-      prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+      prev.map((m) =>
+        m.id === targetId || m.isStreaming
+          ? { ...m, content: displayedTextRef.current || m.content, isStreaming: false }
+          : m
+      )
     );
   };
 
-  const sendMessage = async (text: string, settings: ChatSettings) => {
+  // Linear typing loop that animates tokens smoothly like ChatGPT
+  const startLinearTyping = () => {
+    if (typingTimerRef.current) return;
+
+    const tick = () => {
+      const buffer = incomingBufferRef.current;
+      const targetId = currentMsgIdRef.current;
+
+      if (buffer.length > 0) {
+        // Dynamically pace step size so it's smooth at normal speed, but catches up if buffer is large
+        let stepSize = 1;
+        if (buffer.length > 120) {
+          stepSize = 6;
+        } else if (buffer.length > 60) {
+          stepSize = 3;
+        } else if (buffer.length > 20) {
+          stepSize = 2;
+        } else {
+          stepSize = 1;
+        }
+
+        const nextSlice = buffer.slice(0, stepSize);
+        incomingBufferRef.current = buffer.slice(stepSize);
+        displayedTextRef.current += nextSlice;
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === targetId ? { ...m, content: displayedTextRef.current } : m
+          )
+        );
+
+        // Schedule next tick (~16-18ms gives silky ~60fps linear output)
+        typingTimerRef.current = window.setTimeout(tick, 18);
+      } else {
+        // Buffer is empty - check if stream has finished
+        if (donePayloadRef.current !== null) {
+          const data = donePayloadRef.current;
+          donePayloadRef.current = null;
+          if (typingTimerRef.current) {
+            clearTimeout(typingTimerRef.current);
+            typingTimerRef.current = null;
+          }
+
+          setIsStreaming(false);
+          abortControllerRef.current = null;
+
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === targetId
+                ? {
+                    ...m,
+                    id: data.message_id || m.id,
+                    content: displayedTextRef.current,
+                    latency_ms: data.latency_ms,
+                    model: data.model,
+                    not_answerable: data.not_answerable,
+                    evidence_status: data.evidence_status as any,
+                    answer_source: data.answer_source as any,
+                    fallback_prompt: data.fallback_prompt || null,
+                    isStreaming: false,
+                  }
+                : m
+            )
+          );
+
+          if (!activeThreadId && data.thread_id) {
+            setActiveThreadId(data.thread_id);
+          }
+
+          if (data.thread_title && data.thread_id) {
+            setThreads((prev) =>
+              prev.map((t) =>
+                t.id === data.thread_id ? { ...t, title: data.thread_title } : t
+              )
+            );
+          }
+
+          loadThreads();
+        } else {
+          // Buffer is empty but stream still active from server; poll again
+          typingTimerRef.current = window.setTimeout(tick, 20);
+        }
+      }
+    };
+
+    typingTimerRef.current = window.setTimeout(tick, 18);
+  };
+
+  const sendMessage = async (
+    text: string,
+    settings: ChatSettings,
+    docFilter?: string[],
+    fallbackApproved?: boolean | null,
+  ) => {
     if (isStreaming) return;
 
     const userMessage: Message = {
@@ -99,6 +226,16 @@ export function useChat() {
       citations: [],
     };
 
+    // Reset streaming state and buffers
+    incomingBufferRef.current = '';
+    displayedTextRef.current = '';
+    donePayloadRef.current = null;
+    currentMsgIdRef.current = assistantPlaceholder.id;
+    if (typingTimerRef.current) {
+      clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
+
     setMessages((prev) => [...prev, userMessage, assistantPlaceholder]);
     setIsStreaming(true);
 
@@ -114,64 +251,48 @@ export function useChat() {
           onSourcesStart: (sources: Citation[]) => {
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === assistantPlaceholder.id
+                m.id === currentMsgIdRef.current
                   ? { ...m, sources_start: sources }
                   : m
               )
             );
           },
           onToken: (token: string) => {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantPlaceholder.id
-                  ? { ...m, content: m.content + token }
-                  : m
-              )
-            );
+            // Append token to incoming queue and ensure linear typewriter is active
+            incomingBufferRef.current += token;
+            if (!typingTimerRef.current) {
+              startLinearTyping();
+            }
           },
           onSourcesEnd: (sources: Citation[]) => {
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === assistantPlaceholder.id
+                m.id === currentMsgIdRef.current
                   ? { ...m, citations: sources }
                   : m
               )
             );
           },
           onDone: (data) => {
-            setIsStreaming(false);
-            abortControllerRef.current = null;
-
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantPlaceholder.id
-                  ? {
-                      ...m,
-                      id: data.message_id,
-                      latency_ms: data.latency_ms,
-                      model: data.model,
-                      not_answerable: data.not_answerable,
-                      isStreaming: false,
-                    }
-                  : m
-              )
-            );
-
-            // If this was a new thread, update activeThreadId and reload threads list
-            if (!activeThreadId && data.thread_id) {
-              setActiveThreadId(data.thread_id);
-              loadThreads();
+            // Store done payload - linear typing loop will drain any remaining buffer and finalize smoothly
+            donePayloadRef.current = data;
+            if (!typingTimerRef.current) {
+              startLinearTyping();
             }
           },
           onError: (err: string) => {
+            if (typingTimerRef.current) {
+              clearTimeout(typingTimerRef.current);
+              typingTimerRef.current = null;
+            }
             setIsStreaming(false);
             abortControllerRef.current = null;
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === assistantPlaceholder.id
+                m.id === currentMsgIdRef.current
                   ? {
                       ...m,
-                      content: m.content || `⚠️ Error: ${err}`,
+                      content: displayedTextRef.current || m.content || `⚠️ Error: ${err}`,
                       isStreaming: false,
                     }
                   : m
@@ -179,27 +300,32 @@ export function useChat() {
             );
           },
         },
-        controller.signal
+        controller.signal,
+        docFilter,
+        fallbackApproved,
       );
     } catch (err: any) {
       if (err.name === 'AbortError') {
         console.log('Stream aborted by user');
       } else {
         console.error('Chat error', err);
+        if (typingTimerRef.current) {
+          clearTimeout(typingTimerRef.current);
+          typingTimerRef.current = null;
+        }
+        setIsStreaming(false);
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantPlaceholder.id
+            m.id === currentMsgIdRef.current
               ? {
                   ...m,
-                  content: m.content || `⚠️ Error: ${err.message || 'Stream connection failed'}`,
+                  content: displayedTextRef.current || m.content || `⚠️ Error: ${err.message || 'Stream connection failed'}`,
                   isStreaming: false,
                 }
               : m
           )
         );
       }
-      setIsStreaming(false);
-      abortControllerRef.current = null;
     }
   };
 

@@ -19,6 +19,24 @@ export interface RetrievedChunk {
   score: number;
 }
 
+export type AnswerMode = 'strict' | 'smart_fallback' | 'ask_before_fallback';
+
+export type EvidenceStatus =
+  | 'sufficient'
+  | 'partial'
+  | 'insufficient'
+  | 'conflicting'
+  | 'retrieval_error';
+
+export type AnswerSource =
+  | 'knowledge_base'
+  | 'partial_document'
+  | 'general_ai'
+  | 'insufficient_info'
+  | 'conflicting_sources'
+  | 'conversational'
+  | 'pending_fallback';
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -30,6 +48,9 @@ export interface Message {
   model?: string;
   not_answerable?: boolean;
   isStreaming?: boolean;
+  evidence_status?: EvidenceStatus | null;
+  answer_source?: AnswerSource | null;
+  fallback_prompt?: string | null;
 }
 
 export interface Thread {
@@ -61,4 +82,5 @@ export interface ChatSettings {
   top_k: number;
   use_reranking: boolean;
   user_id: string;
+  answer_mode: AnswerMode;
 }

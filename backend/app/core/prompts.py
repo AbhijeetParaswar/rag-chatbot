@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from backend.app.schemas.schemas import RetrievedChunk
+from backend.app.schemas.schemas import EvidenceStatus, RetrievedChunk
 
 
 import re
@@ -85,6 +85,87 @@ Guidelines:
 4. Do NOT pretend to cite documents or invent citation markers [n] when answering general questions."""
 
 
+GENERAL_QA_LABELED_PROMPT = """You are DocuRAG Assistant, a knowledgeable, clear, and helpful AI assistant.
+
+Guidelines:
+1. Answer the user's question directly, clearly, and accurately using your general knowledge.
+2. Provide a normal, well-structured response as per the question asked.
+3. Do NOT pretend to cite documents or invent citation markers [n].
+4. Do NOT claim your answer comes from any uploaded PDF or knowledge base document.
+5. If you are uncertain about a fact, say so honestly rather than guessing.
+6. For time-sensitive information, note that your knowledge has a training cutoff and may not be current."""
+
+
+PARTIAL_EVIDENCE_PROMPT = """You are DocuRAG Assistant, a precise, helpful document Q&A assistant.
+
+## INSTRUCTIONS:
+1. Answer the user's question using BOTH the retrieved document passages AND your general knowledge.
+2. Clearly separate what is supported by the documents from what is your general knowledge:
+   - For document-supported claims, cite inline using [1], [2], etc.
+   - For claims from your general knowledge, explicitly note them as general knowledge (e.g., "Based on general AI knowledge, ...").
+3. NEVER fabricate document citations for general knowledge claims.
+4. If you are uncertain about general knowledge claims, say so.
+5. Use clean GitHub-flavored markdown formatting."""
+
+
+STRICT_UNANSWERABLE_RESPONSE = """I couldn't find sufficient information to answer this question in the available documents.
+
+**Suggestions:**
+- Try rephrasing your question with different keywords
+- Upload a relevant PDF document that might contain this information
+- Check if the right document is selected in the Knowledge Base
+
+*This response is governed by **Strict Knowledge Base** mode, which only provides document-grounded answers.*"""
+
+
+ASK_FALLBACK_PROMPT = """I couldn't find this information in the uploaded documents.
+
+I can try to answer using my general AI knowledge instead, but the answer won't be grounded in any specific document.
+
+Would you like me to proceed?"""
+
+
+def evaluate_evidence(
+    chunks: list,
+    is_answerable: bool,
+    score_threshold: float = 0.65,
+) -> EvidenceStatus:
+    """Classify the quality of retrieved evidence.
+
+    Parameters
+    ----------
+    chunks : list of RetrievedChunk
+        Retrieved document chunks.
+    is_answerable : bool
+        Whether the retriever determined the query is answerable.
+    score_threshold : float
+        The configured similarity threshold.
+
+    Returns
+    -------
+    EvidenceStatus
+        Classification of evidence quality.
+    """
+    if not chunks or not is_answerable:
+        return EvidenceStatus.insufficient
+
+    scores = [c.score for c in chunks]
+    best_score = max(scores) if scores else 0.0
+
+    # Chunks must strictly meet the similarity threshold to count as evidence
+    if best_score < score_threshold:
+        return EvidenceStatus.insufficient
+
+    above_threshold = [s for s in scores if s >= score_threshold]
+
+    if len(above_threshold) >= 2 and best_score >= score_threshold + 0.05:
+        return EvidenceStatus.sufficient
+    elif len(above_threshold) >= 1:
+        return EvidenceStatus.partial
+
+    return EvidenceStatus.insufficient
+
+
 def build_rag_system_prompt(
     memories: Optional[List[str]] = None,
     is_detailed: bool = False,
@@ -114,15 +195,16 @@ def build_rag_system_prompt(
         else "Provide a clear, accurate, and direct answer as per the user's question based on the passages."
     )
 
-    return f"""You are DocuRAG Assistant, a precise, helpful document Q&A assistant. You answer questions grounded in the provided document passages.
+    return f"""You are DocuRAG Assistant, a precise, helpful AI assistant.
 
 ## INSTRUCTIONS:
-1. Ground your answer in the retrieved document passages provided below.
+1. Ground your answer in the retrieved document passages provided below whenever relevant.
 2. {detail_instruction}
-3. Cite your sources inline using [1], [2], etc. immediately after each factual claim. The numbers correspond to the passage numbers in the context.
+3. Cite your sources inline using [1], [2], etc. immediately after each factual claim supported by the passages.
 4. If multiple passages support a claim, cite all of them: [1][2].
-5. NEVER fabricate or hallucinate information or citation markers.
-6. Use clean GitHub-flavored markdown formatting.
+5. If the retrieved document passages do NOT contain the information needed to answer the question, clearly state: "This information is not found in the uploaded documents." and provide the direct, correct answer using your general knowledge without citation markers.
+6. NEVER fabricate or hallucinate document citations [n].
+7. Use clean GitHub-flavored markdown formatting.
 {memory_section}"""
 
 
@@ -195,8 +277,52 @@ Messages:
 Summary:"""
 
 
-TITLE_GENERATION_PROMPT = """Generate a short, descriptive title (3-8 words) for a conversation that starts with this message. Return ONLY the title, no quotes or punctuation.
+TITLE_GENERATION_PROMPT = """Generate a concise, punchy 3 to 4 word title for a conversation based on what was discussed below, exactly like ChatGPT sidebar titles.
 
-Message: {message}
+Discussion:
+{message}
+
+Strict Rules:
+- The title MUST be exactly 3 to 4 words (maximum 5 words if necessary).
+- Describe the specific topic or question discussed (e.g., "CS101 Grading Policy", "Binary Search Explanation", "Quantum Computing Basics", "Resume Review Feedback").
+- NEVER use generic labels like "Friendly Greeting", "Greeting and Introduction", "New Chat", "General Inquiry", "Small Talk", "Chat Discussion".
+- Do NOT use punctuation, quotation marks, prefixes (like "Title:"), or trailing periods.
+- Return ONLY the 3-4 word title text.
 
 Title:"""
+
+_GENERIC_TITLE_PATTERNS = [
+    r"^(friendly\s+)?greeting(\s+and\s+introduction)?$",
+    r"^introduction$",
+    r"^new\s+chat$",
+    r"^chat$",
+    r"^general\s+(inquiry|conversation|chat)$",
+    r"^small\s+talk$",
+]
+
+
+def is_generic_title(title: Optional[str]) -> bool:
+    """Check if a title is a placeholder or generic greeting title."""
+    if not title:
+        return True
+    t = title.strip().lower()
+    if t in {"new chat", "friendly greeting and introduction", "friendly greeting", "greeting", "introduction"}:
+        return True
+    for pat in _GENERIC_TITLE_PATTERNS:
+        if re.match(pat, t, re.IGNORECASE):
+            return True
+    return False
+
+
+def clean_generated_title(raw_title: str) -> str:
+    """Format title into a clean 3-4 word ChatGPT-style title."""
+    cleaned = raw_title.strip().strip('"\'`*#')
+    cleaned = re.sub(r"^(title|topic|subject|chat):\s*", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"[.?!,:;]+$", "", cleaned).strip()
+    if is_generic_title(cleaned):
+        return "New Chat"
+    words = cleaned.split()
+    if len(words) > 5:
+        cleaned = " ".join(words[:4])
+    return cleaned.title()
+

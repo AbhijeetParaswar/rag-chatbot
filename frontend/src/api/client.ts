@@ -1,4 +1,4 @@
-import { Citation, DocumentItem, MemoryItem, Message, Thread } from '../types';
+import { AnswerMode, Citation, DocumentItem, MemoryItem, Message, Thread } from '../types';
 
 const API_BASE = '/api';
 
@@ -86,16 +86,28 @@ export interface StreamCallbacks {
   onSourcesStart: (sources: Citation[]) => void;
   onToken: (token: string) => void;
   onSourcesEnd: (sources: Citation[]) => void;
-  onDone: (data: { message_id: string; thread_id: string; latency_ms: number; model: string; not_answerable: boolean }) => void;
+  onDone: (data: {
+    message_id: string;
+    thread_id: string;
+    thread_title?: string | null;
+    latency_ms: number;
+    model: string;
+    not_answerable: boolean;
+    evidence_status?: string | null;
+    answer_source?: string | null;
+    fallback_prompt?: string | null;
+  }) => void;
   onError: (err: string) => void;
 }
 
 export async function streamChat(
   query: string,
   threadId: string | null,
-  settings: { top_k: number; use_reranking: boolean; user_id: string },
+  settings: { top_k: number; use_reranking: boolean; user_id: string; answer_mode: AnswerMode },
   callbacks: StreamCallbacks,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  docFilter?: string[],
+  fallbackApproved?: boolean | null,
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
@@ -106,6 +118,9 @@ export async function streamChat(
       user_id: settings.user_id,
       top_k: settings.top_k,
       use_reranking: settings.use_reranking,
+      answer_mode: settings.answer_mode,
+      doc_filter: docFilter && docFilter.length > 0 ? docFilter : undefined,
+      fallback_approved: fallbackApproved !== undefined ? fallbackApproved : undefined,
     }),
     signal,
   });

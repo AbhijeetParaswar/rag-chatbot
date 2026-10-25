@@ -115,6 +115,101 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           </div>
 
+          {/* Answer Mode Section (Strict / Smart Fallback / Ask Before Fallback) */}
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm font-medium text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                <Brain className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                Knowledge Base Answer Mode
+              </label>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Controls behavior when uploaded documents lack sufficient information to answer a query.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5">
+              {/* Option 1: Smart Fallback (Default) */}
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ ...settings, answer_mode: 'smart_fallback' })}
+                className={`p-3 rounded-xl border text-left transition relative flex items-start gap-3 ${
+                  settings.answer_mode === 'smart_fallback'
+                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 ring-1 ring-emerald-500/50'
+                    : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/60 hover:border-gray-300 dark:hover:border-gray-700'
+                }`}
+              >
+                <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
+                  settings.answer_mode === 'smart_fallback'
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+                }`}>
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-900 dark:text-white">Smart Fallback</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-emerald-100 dark:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300">
+                      Recommended
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 leading-normal">
+                    Grounds in documents when possible. If evidence is missing, clearly notifies you and answers using general AI knowledge.
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 2: Ask Before Fallback */}
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ ...settings, answer_mode: 'ask_before_fallback' })}
+                className={`p-3 rounded-xl border text-left transition relative flex items-start gap-3 ${
+                  settings.answer_mode === 'ask_before_fallback'
+                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 ring-1 ring-emerald-500/50'
+                    : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/60 hover:border-gray-300 dark:hover:border-gray-700'
+                }`}
+              >
+                <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
+                  settings.answer_mode === 'ask_before_fallback'
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+                }`}>
+                  <Sliders className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs font-semibold text-gray-900 dark:text-white">Ask Before Fallback</span>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 leading-normal">
+                    When documents lack evidence, explains that info was not found and requests your confirmation before using general AI knowledge.
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 3: Strict Knowledge Base */}
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ ...settings, answer_mode: 'strict' })}
+                className={`p-3 rounded-xl border text-left transition relative flex items-start gap-3 ${
+                  settings.answer_mode === 'strict'
+                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 ring-1 ring-emerald-500/50'
+                    : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/60 hover:border-gray-300 dark:hover:border-gray-700'
+                }`}
+              >
+                <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
+                  settings.answer_mode === 'strict'
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+                }`}>
+                  <Settings2 className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs font-semibold text-gray-900 dark:text-white">Strict Knowledge Base Only</span>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 leading-normal">
+                    Strict zero-hallucination policy. Only answers queries directly supported by uploaded documents. Refuses to answer otherwise.
+                  </p>
+                </div>
+              </button>
+            </div>
+          </div>
+
           {/* Long-Term Memories Section */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">

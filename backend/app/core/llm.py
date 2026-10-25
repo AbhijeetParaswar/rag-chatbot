@@ -13,6 +13,8 @@ from typing import AsyncGenerator, Optional
 
 from backend.app.config import get_settings
 
+import re
+
 logger = logging.getLogger(__name__)
 _settings = get_settings()
 
@@ -68,21 +70,27 @@ class GeminiProvider(LLMProvider):
             max_output_tokens=4096,
         )
 
-        loop = asyncio.get_event_loop()
-
-        # Gemini streaming
-        response = await loop.run_in_executor(
-            None,
-            lambda: self._client.models.generate_content_stream(
+        try:
+            # Native non-blocking async streaming from Gemini
+            response = await self._client.aio.models.generate_content_stream(
                 model=self._model,
                 contents=prompt,
                 config=config,
-            ),
-        )
+            )
 
-        for chunk in response:
-            if chunk.text:
-                yield chunk.text
+            async for chunk in response:
+                if chunk.text:
+                    # Linearize chunk words so it streams smoothly like ChatGPT
+                    tokens = re.findall(r"\S+\s*|\s+", chunk.text)
+                    if len(tokens) > 1:
+                        for tok in tokens:
+                            yield tok
+                            await asyncio.sleep(0.012)
+                    else:
+                        yield chunk.text
+        except Exception as e:
+            logger.error(f"Error in Gemini streaming: {e}")
+            raise
 
     async def generate(
         self,
@@ -97,14 +105,10 @@ class GeminiProvider(LLMProvider):
             max_output_tokens=4096,
         )
 
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self._client.models.generate_content(
-                model=self._model,
-                contents=prompt,
-                config=config,
-            ),
+        response = await self._client.aio.models.generate_content(
+            model=self._model,
+            contents=prompt,
+            config=config,
         )
         return response.text or ""
 
@@ -152,7 +156,14 @@ class OpenAIProvider(LLMProvider):
         if response:
             async for chunk in response:
                 if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                    content = chunk.choices[0].delta.content
+                    tokens = re.findall(r"\S+\s*|\s+", content)
+                    if len(tokens) > 2:
+                        for tok in tokens:
+                            yield tok
+                            await asyncio.sleep(0.010)
+                    else:
+                        yield content
 
     async def generate(
         self,

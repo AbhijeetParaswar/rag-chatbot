@@ -72,12 +72,14 @@ class Settings(BaseSettings):
 
     # ── Retrieval ────────────────────────────────
     retrieval_top_k: int = 8
-    retrieval_score_threshold: float = 0.55
+    retrieval_score_threshold: float = 0.65
     retrieval_use_mmr: bool = False
     retrieval_mmr_diversity: float = 0.3
     reranking_enabled: bool = False
     reranking_model: str = "BAAI/bge-reranker-base"
     reranking_top_k: int = 5
+    # ── Answer Modes ─────────────────────────────
+    default_answer_mode: str = "smart_fallback"  # "strict" | "smart_fallback" | "ask_before_fallback"
 
     # ── Memory ───────────────────────────────────
     short_term_window: int = 10

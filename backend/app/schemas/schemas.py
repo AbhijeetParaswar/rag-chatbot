@@ -3,9 +3,41 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+# ──────────────────────────────────────────────────
+# Answer Mode & Evidence Enums
+# ──────────────────────────────────────────────────
+
+class AnswerMode(str, Enum):
+    """Controls what happens when the knowledge base lacks sufficient evidence."""
+    strict = "strict"                       # Mode A: only document-grounded answers
+    smart_fallback = "smart_fallback"       # Mode B: prefer docs, fallback to parametric
+    ask_before_fallback = "ask_before_fallback"  # Mode C: ask user before fallback
+
+
+class EvidenceStatus(str, Enum):
+    """Classification of retrieved evidence quality."""
+    sufficient = "sufficient"       # Evidence supports the requested answer
+    partial = "partial"             # Evidence supports only part of the answer
+    insufficient = "insufficient"   # Required information not present
+    conflicting = "conflicting"     # Retrieved sources disagree on a fact
+    retrieval_error = "retrieval_error"  # Technical retrieval failure
+
+
+class AnswerSource(str, Enum):
+    """Label indicating where the answer came from."""
+    knowledge_base = "knowledge_base"             # Grounded in documents
+    partial_document = "partial_document"         # Partially from documents
+    general_ai = "general_ai"                     # LLM parametric knowledge
+    insufficient_info = "insufficient_info"       # Could not answer
+    conflicting_sources = "conflicting_sources"   # Sources disagree
+    conversational = "conversational"             # Greeting / small talk
+    pending_fallback = "pending_fallback"         # Awaiting user confirmation
 
 
 # ──────────────────────────────────────────────────
@@ -19,6 +51,9 @@ class ChatRequest(BaseModel):
     user_id: str = "default"
     top_k: Optional[int] = None
     use_reranking: Optional[bool] = None
+    doc_filter: Optional[List[str]] = None
+    answer_mode: AnswerMode = AnswerMode.smart_fallback
+    fallback_approved: Optional[bool] = None  # For ask_before_fallback: user's response
 
 
 class RetrievedChunk(BaseModel):
@@ -48,12 +83,16 @@ class ChatResponse(BaseModel):
     """Response body for non-streaming /chat."""
     message_id: str
     thread_id: str
+    thread_title: Optional[str] = None
     answer: str
     citations: List[Citation]
     retrieved_chunks: List[RetrievedChunk]
     latency_ms: float
     model: str
     not_answerable: bool = False
+    evidence_status: Optional[EvidenceStatus] = None
+    answer_source: Optional[AnswerSource] = None
+    fallback_prompt: Optional[str] = None  # Non-null when mode C awaits user decision
 
 
 # ──────────────────────────────────────────────────
@@ -74,9 +113,13 @@ class SSEDoneData(BaseModel):
     """Payload for the done event."""
     message_id: str
     thread_id: str
+    thread_title: Optional[str] = None
     latency_ms: float
     model: str
     not_answerable: bool = False
+    evidence_status: Optional[str] = None
+    answer_source: Optional[str] = None
+    fallback_prompt: Optional[str] = None  # Non-null when mode C awaits user decision
 
 
 class SSEErrorData(BaseModel):

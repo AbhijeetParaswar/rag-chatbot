@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from backend.app.config import get_settings
 from backend.app.core.embeddings import get_embedding_provider
 from backend.app.core.ingestion import get_chroma_collection
+from backend.app.core.prompts import evaluate_evidence
 from backend.app.schemas.schemas import RetrievedChunk
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ async def retrieve(
     use_reranking: Optional[bool] = None,
     score_threshold: Optional[float] = None,
     collection_name: Optional[str] = None,
+    doc_filter: Optional[List[str]] = None,
 ) -> Tuple[List[RetrievedChunk], bool]:
     """Retrieve relevant chunks for a query.
 
@@ -51,6 +53,8 @@ async def retrieve(
         Minimum similarity score. Defaults to config.
     collection_name : str, optional
         ChromaDB collection to search. Defaults to documents.
+    doc_filter : list of str, optional
+        Filter results to specific document file names.
 
     Returns
     -------
@@ -70,11 +74,23 @@ async def retrieve(
     # Fetch more if we're going to rerank
     fetch_k = k * 3 if do_rerank else k
 
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=min(fetch_k, collection.count() or 1),
-        include=["documents", "metadatas", "distances"],
-    )
+    where_clause = None
+    if doc_filter:
+        valid_filters = [f.strip() for f in doc_filter if f and f.strip()]
+        if len(valid_filters) == 1:
+            where_clause = {"file_name": valid_filters[0]}
+        elif len(valid_filters) > 1:
+            where_clause = {"file_name": {"$in": valid_filters}}
+
+    query_kwargs = {
+        "query_embeddings": [query_embedding],
+        "n_results": min(fetch_k, collection.count() or 1),
+        "include": ["documents", "metadatas", "distances"],
+    }
+    if where_clause:
+        query_kwargs["where"] = where_clause
+
+    results = collection.query(**query_kwargs)
 
     if not results["ids"] or not results["ids"][0]:
         logger.info("No results found in ChromaDB")

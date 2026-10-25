@@ -50,15 +50,31 @@ async def api_list_threads(
     user_id: str = "default",
     db: AsyncSession = Depends(get_db),
 ) -> List[ThreadOut]:
-    """List all threads for a user."""
+    """List all threads for a user, auto-cleaning generic greeting titles."""
+    from backend.app.core.prompts import is_generic_title, is_conversational_query
+
     threads = await list_threads(db, user_id=user_id)
     out: List[ThreadOut] = []
     for t in threads:
         msg_count = len(t.messages) if hasattr(t, "messages") and t.messages is not None else 0
+        raw_title = t.title or "New Chat"
+
+        # Auto-clean legacy "Friendly Greeting and Introduction" titles
+        if is_generic_title(raw_title) and raw_title.lower() != "new chat":
+            cleaned = "New Chat"
+            if t.messages:
+                for m in t.messages:
+                    if m.role == "user" and not is_conversational_query(m.content):
+                        words = m.content.strip().split()
+                        cleaned = " ".join(words[:4]).title()
+                        break
+            await update_thread(db, t.id, title=cleaned)
+            raw_title = cleaned
+
         out.append(
             ThreadOut(
                 id=t.id,
-                title=t.title or "New Chat",
+                title=raw_title,
                 summary=t.summary,
                 created_at=t.created_at,
                 updated_at=t.updated_at,
