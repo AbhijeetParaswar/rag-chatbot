@@ -6,6 +6,7 @@ from backend.app.core.citations import (
     build_pre_sources,
     clean_invalid_citations,
     format_citation_footer,
+    normalize_citation_markers,
     parse_citation_markers,
     validate_citations,
 )
@@ -30,6 +31,18 @@ def test_parse_citation_markers():
     text = "The midterm is worth 25% [1] and homework is 30% [2]. Also note [1][3]."
     indices = parse_citation_markers(text)
     assert indices == {1, 2, 3}
+
+
+def test_parse_citation_markers_extended():
+    text = "Sentinel search is linear 【1†L1-L5】 and terminates early 【3†L1-L5】."
+    indices = parse_citation_markers(text)
+    assert indices == {1, 3}
+
+
+def test_normalize_citation_markers():
+    text = "Details are here 【1†L1-L5】 and there 【3†L1-L5】."
+    normalized = normalize_citation_markers(text)
+    assert normalized == "Details are here [1] and there [3]."
 
 
 def test_validate_citations():

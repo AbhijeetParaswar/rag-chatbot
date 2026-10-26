@@ -15,9 +15,31 @@ from backend.app.schemas.schemas import Citation, RetrievedChunk
 # Regex to find citation markers like [1], [2], [1][3], etc.
 _CITATION_PATTERN = re.compile(r"\[(\d+)\]")
 
+# Extended pattern to match alternative formats emitted by certain LLMs (e.g. 【1†L1-L5】, 【1】, ［1］, [1†source])
+_EXTENDED_CITATION_PATTERN = re.compile(r"[\[【［](\d+)(?:[†:][^\]】］]*)?[\]】］]")
+
+
+def normalize_citation_markers(text: str) -> str:
+    """Normalize non-standard citation markers like 【1†L1-L5】 or [1†source] to standard [1].
+
+    Parameters
+    ----------
+    text : str
+        The raw LLM output text.
+
+    Returns
+    -------
+    str
+        Text with all citation markers converted to standard [n] format.
+    """
+    return _EXTENDED_CITATION_PATTERN.sub(r"[\1]", text)
+
 
 def parse_citation_markers(text: str) -> Set[int]:
     """Extract all unique citation indices from model output.
+
+    Handles standard [1] markers as well as fullwidth brackets and tags like
+    【1†L1-L5】 or 【1】.
 
     Parameters
     ----------
@@ -29,7 +51,7 @@ def parse_citation_markers(text: str) -> Set[int]:
     set of int
         Unique 1-based citation indices found in the text.
     """
-    return {int(m.group(1)) for m in _CITATION_PATTERN.finditer(text)}
+    return {int(m.group(1)) for m in _EXTENDED_CITATION_PATTERN.finditer(text)}
 
 
 def validate_citations(
@@ -150,14 +172,15 @@ def format_citation_footer(citations: List[Citation]) -> str:
 def clean_invalid_citations(text: str, chunks: List[RetrievedChunk]) -> str:
     """Remove invalid citation markers from model output.
 
-    Replaces [n] markers that don't correspond to any chunk.
+    Replaces [n] markers that don't correspond to any chunk, and normalizes
+    valid markers to standard [n] format.
     """
     max_index = len(chunks)
 
     def _replace(match: re.Match) -> str:
         idx = int(match.group(1))
         if 1 <= idx <= max_index:
-            return match.group(0)  # Keep valid
+            return f"[{idx}]"  # Keep valid and normalized
         return ""  # Remove invalid
 
-    return _CITATION_PATTERN.sub(_replace, text)
+    return _EXTENDED_CITATION_PATTERN.sub(_replace, text)

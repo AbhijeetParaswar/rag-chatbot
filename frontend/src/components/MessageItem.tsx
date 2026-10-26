@@ -50,11 +50,11 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     return undefined;
   };
 
-  // Custom component for inline markdown text to render [n] as clickable chips
+  // Custom component for inline markdown text to render [n] (or 【1†L1-L5】) as clickable chips
   const renderFormattedContent = (content: string) => {
-    const parts = content.split(/(\[\d+\])/g);
+    const parts = content.split(/(\[\d+\]|【\d+[^】]*】|［\d+[^］]*］)/g);
     return parts.map((part, index) => {
-      const match = part.match(/^\[(\d+)\]$/);
+      const match = part.match(/^[\[【［](\d+)/);
       if (match) {
         const idx = parseInt(match[1], 10);
         const cite = getCitationByIndex(idx);

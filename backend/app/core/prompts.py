@@ -200,7 +200,7 @@ def build_rag_system_prompt(
 ## INSTRUCTIONS:
 1. Ground your answer in the retrieved document passages provided below whenever relevant.
 2. {detail_instruction}
-3. Cite your sources inline using [1], [2], etc. immediately after each factual claim supported by the passages.
+3. Cite your sources inline using standard ASCII brackets like [1], [2], etc. immediately after each factual claim supported by the passages. Do NOT use full-width brackets or tags like 【1】 or 【1†L1-L5】.
 4. If multiple passages support a claim, cite all of them: [1][2].
 5. If the retrieved document passages do NOT contain the information needed to answer the question, clearly state: "This information is not found in the uploaded documents." and provide the direct, correct answer using your general knowledge without citation markers.
 6. NEVER fabricate or hallucinate document citations [n].

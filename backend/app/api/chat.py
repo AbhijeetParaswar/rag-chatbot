@@ -16,6 +16,7 @@ from backend.app.config import get_settings
 from backend.app.core.citations import (
     build_citations,
     build_pre_sources,
+    normalize_citation_markers,
     parse_citation_markers,
 )
 from backend.app.core.llm import get_llm_provider
@@ -289,19 +290,29 @@ async def api_chat_sync(
             context = build_rag_context(chunks)
             user_prompt = build_rag_user_prompt(payload.query, context, is_detailed=is_detailed)
             raw_answer = await llm.generate(user_prompt, system_prompt=system_prompt)
+            raw_answer = normalize_citation_markers(raw_answer)
             used_indices = parse_citation_markers(raw_answer)
-            final_citations = build_citations(used_indices, chunks) if used_indices else []
+            final_citations = (
+                build_citations(used_indices, chunks)
+                if used_indices
+                else build_citations(set(range(1, len(chunks) + 1)), chunks)
+            )
             answer = raw_answer
             not_answerable = False
-            answer_source = AnswerSource.knowledge_base if final_citations else AnswerSource.general_ai
+            answer_source = AnswerSource.knowledge_base
 
         elif decision == "partial_rag":
             system_prompt = PARTIAL_EVIDENCE_PROMPT
             context = build_rag_context(chunks)
             user_prompt = build_rag_user_prompt(payload.query, context, is_detailed=is_detailed)
             raw_answer = await llm.generate(user_prompt, system_prompt=system_prompt)
+            raw_answer = normalize_citation_markers(raw_answer)
             used_indices = parse_citation_markers(raw_answer)
-            final_citations = build_citations(used_indices, chunks) if used_indices else []
+            final_citations = (
+                build_citations(used_indices, chunks)
+                if used_indices
+                else build_citations(set(range(1, len(chunks) + 1)), chunks)
+            )
             answer = raw_answer
             not_answerable = False
             answer_source = AnswerSource.partial_document
@@ -557,10 +568,15 @@ async def api_chat_stream(payload: ChatRequest):
                             "data": json.dumps({"token": token}),
                         }
 
+                full_response = normalize_citation_markers(full_response)
                 used_indices = parse_citation_markers(full_response)
-                final_citations = build_citations(used_indices, chunks) if used_indices else []
+                final_citations = (
+                    build_citations(used_indices, chunks)
+                    if used_indices
+                    else build_citations(set(range(1, len(chunks) + 1)), chunks)
+                )
                 not_answerable = False
-                answer_source = AnswerSource.knowledge_base if final_citations else AnswerSource.general_ai
+                answer_source = AnswerSource.knowledge_base
 
                 yield {
                     "event": "sources_end",
@@ -587,8 +603,13 @@ async def api_chat_stream(payload: ChatRequest):
                             "data": json.dumps({"token": token}),
                         }
 
+                full_response = normalize_citation_markers(full_response)
                 used_indices = parse_citation_markers(full_response)
-                final_citations = build_citations(used_indices, chunks) if used_indices else []
+                final_citations = (
+                    build_citations(used_indices, chunks)
+                    if used_indices
+                    else build_citations(set(range(1, len(chunks) + 1)), chunks)
+                )
                 not_answerable = False
                 answer_source = AnswerSource.partial_document
 
